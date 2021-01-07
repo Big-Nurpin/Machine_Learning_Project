@@ -1,0 +1,112 @@
+---
+title: "Activity Predictions"
+author: "Jeremy Dean"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+set.seed(12345)
+```
+
+## Summary
+
+Per the project background on Coursera: "Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it." Using the data from http://groupware.les.inf.puc-rio.br/har, I compared 4 prediction models to make the best predictions on a final test set of 20. Full annotations can be found on last page of this report.
+
+## Downloading and Preparing Data
+
+The training and test sets first had to be downloaded and viewed. Immediately the first 7 columns were recognized to be no use as predictors and were removed from the data along with any blank and near zero variance columns because they will not be good predictors. The predicted variable was changed into a factor variable.
+
+```{r download, cache=TRUE}
+library(caret)
+set.seed(12345)
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile = "train.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              destfile = "test.csv")
+data <- read.csv("train.csv")
+finalTest <- read.csv("test.csv")
+str(data)
+data$classe <- as.factor(data$classe)
+
+##Removing unnecessary columns
+data <- data[ , colSums(is.na(data)) == 0]
+data <- data[ , -c(1:7)]
+fullNSV <- nearZeroVar(data)
+```
+
+The training (called data) set was then divided into its own training, test, and validation sets. The near zero columns on this new training set is compared to those of the full set to insure they are the same before removing the them from the sets.
+
+```{r split}
+library(caret)
+set.seed(12345)
+inTrain <- createDataPartition(data$classe, p = .6, list = FALSE)
+train <- data[inTrain, ]
+trainNsv <- nearZeroVar(train)
+all(trainNsv) == all(fullNSV)
+train <- train[ , -fullNSV]
+testBoth <- data[-inTrain, -fullNSV]
+inVal <- createDataPartition(testBoth$classe, p = .5, list = FALSE)
+test <- testBoth[-inVal, ]
+validation <- testBoth[inVal, ] 
+```
+
+## Prediction Model Selection
+
+Four machine-learning prediction models were trained on the train subset and tested on the testing subset. Those models included a classification tree, random forest, linear discriminant analysis, and bagging. The accuracies of these models were compared to pick the best one. The target accuracy of the models is over 80%.
+
+```{r models, cache=TRUE}
+##Classification Tree
+modTree <- train(classe ~. , data = train, method = "rpart")
+predTree <- predict(modTree, test)
+TreeAcc <- confusionMatrix(test$classe, predTree)$overall[1]
+
+##Random Forest
+modRF <- train(classe ~. , data = train, method = "rf")
+predRF <- predict(modRF, test)
+rfAcc <- confusionMatrix(test$classe, predRF)$overall[1]
+
+##Bagging
+modBag <- train(classe ~. , data = train, method = "treebag")
+predBag <- predict(modBag, test)
+bagAcc <- confusionMatrix(test$classe, predBag)$overall[1]
+
+
+##Linear Discriminant Analysis
+modLDA <- train(classe ~. , data = train, method = "lda")
+predLDA <- predict(modLDA, test)
+ldaAcc <- confusionMatrix(test$classe, predLDA)$overall[1]
+
+##Comparing Models
+accuracies <- data.frame(Tree = TreeAcc, RandForest = rfAcc, 
+                         Bagging = bagAcc, LDA = ldaAcc)
+round(accuracies, 3)
+```
+
+With an accuracy of 99.5%, well over the 80% target, the random forest prediction model is chosen. Although this model is extremely accurate, it is important top note that it is computationally taxing and therfore not easily scalable.
+
+```{r finalModel}
+confusionMatrix(test$classe, predRF)
+```
+
+## Out of Sample Error and Results
+Since the model was chosen by picking the best model on the test set, the predicted out of sample error must be determined on the validation set.
+
+```{r val}
+predVal <- predict(modRF, validation)
+confusionMatrix(predVal, validation$classe)
+```
+
+With an accuracy of 99.4%, the estimated out of sample error rate in .06%. The model was then used on the final test set with the following results.
+
+```{r final}
+rbind(1:20, as.character(predict(modRF, finalTest)))
+```
+
+\newpage
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#dataset#ixzz6ioxNcf1X
